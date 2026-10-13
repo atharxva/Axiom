@@ -1,0 +1,17 @@
+# Environments
+venv/
+.env
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local vector DB & SQLite caches (keep raw_documents tracked)
+data/chroma_db/
+*.sqlite3
+
+# IDE & OS
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,51 @@
+# GLOBAL FINANCIAL SYSTEMS - ENTERPRISE AUDIT & COMPLIANCE POLICY (v3.2)
+Classification: RESTRICTED / INTERNAL AUDIT ONLY
+Effective Date: October 1, 2024
+Author: Corporate Governance & Risk Management Committee
+
+---
+
+## 1. REGULATORY FRAMEWORK & SCOPE
+This document outlines the mandatory operational standards governing Global Financial Systems (GFS) infrastructure. All engineering systems, data processing pipelines, and cloud services must strictly adhere to compliance mandates defined under:
+- Sarbanes-Oxley (SOX) Act Section 404
+- SOC 2 Type II Security, Availability, and Confidentiality Trust Principles
+- ISO/IEC 27001:2022 Information Security Management
+- Payment Card Industry Data Security Standard (PCI-DSS) v4.0
+
+Failure to implement these controls constitutes a Tier-1 regulatory infraction subject to external disclosure.
+
+---
+
+## 2. CRYPTOGRAPHIC CONTROLS & KEY MANAGEMENT
+All customer financial data and audit trails must be encrypted at rest and in transit.
+- At Rest: AES-256-GCM authenticated encryption is mandatory across all persistent storage volumes, databases, and backup snapshots.
+- In Transit: TLS 1.3 is strictly enforced. TLS 1.2 is permitted only for legacy banking interfaces with explicit architecture approval. TLS 1.0 and 1.1 are permanently deprecated and blocked by network gateways.
+- Key Rotation: Cryptographic master keys stored in Cloud HSM (Hardware Security Module) must undergo automated rotation every 90 days. Deprecated keys must be archived in read-only state for 365 days before destruction.
+
+---
+
+## 3. AUDIT LOG IMMUTABILITY & RETENTION SCHEDULE
+Audit records provide tamper-evident forensic truth in the event of an investigation.
+- WORM Storage: All transaction audit records and security event logs must be streamed to Write-Once-Read-Many (WORM) compliant S3 bucket storage with Object Lock enabled.
+- Cryptographic Chaining: Every ingested audit log entry must include an HMAC-SHA256 signature calculated from the previous entry's checksum, establishing a verifiable hash chain.
+- Retention Periods:
+  * Financial transaction records: Retained for exactly 7 years.
+  * System administrative access logs: Retained for 3 years.
+  * Ephemeral network flow logs (VPC flows): Retained for 90 days.
+Purging expired data requires dual-custody authorization from both the Chief Compliance Officer (CCO) and Head of Infrastructure.
+
+---
+
+## 4. ACCESS CONTROL & ZERO-TRUST ARCHITECTURE
+Access to financial document pipelines operates under the Principle of Least Privilege (PoLP) and Zero-Trust Architecture:
+- Multi-Factor Authentication: Hardware FIDO2/WebAuthn tokens are mandatory for all administrative access. SMS and email-based MFA are strictly prohibited.
+- Session Limits: Privileged administrative sessions terminate automatically after 15 minutes of inactivity. Maximum total session duration cannot exceed 8 hours without re-authentication.
+- Role-Based Access Control (RBAC): Production database read access is restricted to automated services and vetted on-call site reliability engineers via Just-In-Time (JIT) role elevation.
+
+---
+
+## 5. INCIDENT RESPONSE & FORENSIC DISCLOSURE SLAs
+When anomalous data access or credential compromise is detected:
+- Severity 1 (Critical Data Breach): The Incident Response Team (IRT) must contain the threat within 1 hour. Regulatory notification to the SEC and state authorities must be dispatched within 24 hours.
+- Severity 2 (Unauthorized Configuration Drift): Containment required within 4 hours; root cause analysis published within 5 business days.
+- Forensic Preservation: Systems affected by Severity 1 incidents must immediately snapshot all volatile memory (RAM) and volume block storage before instance termination.
