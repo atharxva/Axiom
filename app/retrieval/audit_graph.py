@@ -2,11 +2,14 @@ from langgraph.graph import StateGraph, START, END
 from app.retrieval.graph_state import AuditState
 from app.retrieval.hybrid_search import HybridSearcher
 from app.retrieval.reranker import RerankerService
+from app.retrieval.llm_service import LLMService
 
 def build_audit_graph(hybrid: HybridSearcher, reranker: RerankerService, min_confidence: float = 0.50):
+    llm = LLMService()
+
     def retrieve_node(state: AuditState) -> dict:
-        candidates = hybrid.search(state["query"], top_k=4)
-        ranked = reranker.rerank(state["query"], candidates, top_k=2)
+        candidates = hybrid.search(state["query"], top_k=10)
+        ranked = reranker.rerank(state["query"], candidates, top_k=3)
         top_score = ranked[0]["score"] if ranked else 0.0
         return {"documents": ranked, "confidence_score": top_score}
 
@@ -15,11 +18,12 @@ def build_audit_graph(hybrid: HybridSearcher, reranker: RerankerService, min_con
 
     def generate_node(state: AuditState) -> dict:
         top_doc = state["documents"][0]["text"]
-        ans = f"Verified Audit Policy: Based on official compliance documentation:\n{top_doc}"
-        return {"final_answer": ans}
+        conversational_answer = llm.synthesize_audit_answer(state["query"], top_doc)
+        return {"final_answer": conversational_answer}
 
     def fallback_node(state: AuditState) -> dict:
-        ans = f"Audit Rejection: Confidence score ({state['confidence_score']:.4f}) below threshold ({min_confidence}). No verified policy found."
+        top_doc = state["documents"][0]["text"] if state["documents"] else "No text found."
+        ans = f"Audit Rejection (Low Confidence: {state['confidence_score']:.4f}). Closest matching excerpt:\n\n{top_doc}"
         return {"final_answer": ans}
 
     def route_decision(state: AuditState) -> str:
