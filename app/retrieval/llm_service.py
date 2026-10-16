@@ -9,41 +9,55 @@ class LLMService:
     def __init__(self):
         api_key = os.getenv("GEMINI_API_KEY", "").strip('"\'')
         self.client = genai.Client(api_key=api_key) if api_key else None
-        # Confirmed working Google models: gemini-flash-latest and gemini-3.5-flash-lite
-        self.candidate_models = ["gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-pro-latest"]
+        # Confirmed responsive, stable production model: gemini-3.5-flash
+        self.candidate_models = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
 
-    def synthesize_audit_answer(self, query: str, context: str) -> str:
-        """
-        Synthesizes a conversational response grounded in verified compliance policy,
-        using verified working Google models.
-        """
-        if not self.client:
-            return f"Verified Compliance Policy:\n\n{context}"
-
-        prompt = f"""You are AxiomRAG, a senior enterprise compliance auditor assistant.
+    def _get_prompt(self, query: str, context: str) -> str:
+        return f"""You are AxiomRAG, an executive compliance advisor.
 The user asked: "{query}"
 
-Using ONLY the verified policy excerpt below, answer the user's question directly in a professional, conversational tone (like ChatGPT/Gemini).
-Rules:
-1. Speak directly to the user in clean, natural, helpful sentences.
-2. Directly answer their question in the very first sentence.
-3. Explicitly cite the specific section numbers, clauses, and rule numbers mentioned.
-4. Keep the answer concise (2-4 sentences). Do NOT hallucinate facts not present in the excerpt.
+Your goal is to provide a clean, human abstraction of the rule rather than repeating robotic legal language. 
+Explain it like an experienced consultant speaking to an executive.
 
-VERIFIED EXCERPT:
+Formatting Structure:
+1. **The Verdict**: Start with a direct, conversational yes/no conclusion in plain English.
+2. **Where to Find It**: A clean citation tag showing the exact section pointer (e.g., `📍 Found in Section 2.4 (Working Hours)`).
+3. **The Plain English Breakdown**:
+   - Abstract the rule into 2 or 3 simple, digestible bullet points.
+   - Strip out dense legal jargon (avoid repeating "collective bargaining agreement clause iii", explain it simply as "rare emergencies or union agreements").
+   - Focus on what the user actually needs to know.
+
+OFFICIAL POLICY TEXT:
 {context}
 """
-        last_error = None
+
+    def synthesize_audit_answer(self, query: str, context: str) -> str:
+        if not self.client:
+            return f"**Official Policy:**\n\n{context}"
+
+        prompt = self._get_prompt(query, context)
         for model_name in self.candidate_models:
             try:
-                response = self.client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
+                response = self.client.models.generate_content(model=model_name, contents=prompt)
                 if response and response.text:
                     return response.text.strip()
-            except Exception as e:
-                last_error = e
+            except Exception:
                 continue
+        return f"**Official Policy (Fallback):**\n\n{context}"
 
-        return f"Verified Policy (LLM Fallback):\n\n{context}\n\n(Note: LLM generation failed: {last_error})"
+    def stream_audit_answer(self, query: str, context: str):
+        if not self.client:
+            yield context
+            return
+
+        prompt = self._get_prompt(query, context)
+        for model_name in self.candidate_models:
+            try:
+                response = self.client.models.generate_content_stream(model=model_name, contents=prompt)
+                for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+                return
+            except Exception:
+                continue
+        yield context
