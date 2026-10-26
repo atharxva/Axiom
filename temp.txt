@@ -4,4 +4,5 @@ basically create a profile ,
 3.A chat context option , and being able to view the past chats
 4. A better looking ui avoiding the dark colours, and making it not 
 look like chatgpt or any other llm but something unique of it 
-own
+own .
+5. 

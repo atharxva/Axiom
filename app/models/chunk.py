@@ -19,7 +19,7 @@ class DocumentChunk(BaseModel):
     def chunk_id(self) -> str:
         if hasattr(self, "_hydrated_id"):
             return self._hydrated_id
-        raw = f"{self.metadata.source}:{self.metadata.doc_id}:{self.chunk_index}:{self.text[:30]}"
+        raw = f"{self.metadata.source}:{self.metadata.doc_id}:{self.metadata.page_number}:{self.chunk_index}:{self.text[:40]}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def to_chroma_format(self) -> dict:

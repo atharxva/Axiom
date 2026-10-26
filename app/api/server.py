@@ -128,12 +128,33 @@ async def list_documents(user_id: str = DEFAULT_USER_ID, db: Session = Depends(g
         for d in docs
     ]
 
+@app.get("/api/documents/{doc_id}/view")
+async def view_document_file(doc_id: str, db: Session = Depends(get_db)):
+    doc = db.query(DocumentRecord).filter(DocumentRecord.id == doc_id).first()
+    if not doc or not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="Document file not found on disk")
+    media_type = "application/pdf" if doc.filename.lower().endswith(".pdf") else "text/plain"
+    return FileResponse(
+        doc.file_path, 
+        media_type=media_type, 
+        content_disposition_type="inline"
+    )
+
 @app.get("/api/documents/{doc_id}/download")
 async def get_document_file(doc_id: str, db: Session = Depends(get_db)):
     doc = db.query(DocumentRecord).filter(DocumentRecord.id == doc_id).first()
     if not doc or not os.path.exists(doc.file_path):
         raise HTTPException(status_code=404, detail="Document file not found on disk")
-    return FileResponse(doc.file_path, filename=doc.filename)
+    return FileResponse(doc.file_path, filename=doc.filename, content_disposition_type="attachment")
+
+@app.get("/api/documents/{doc_id}/text")
+async def get_document_text(doc_id: str, db: Session = Depends(get_db)):
+    doc = db.query(DocumentRecord).filter(DocumentRecord.id == doc_id).first()
+    if not doc or not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="Document not found")
+    content = Path(doc.file_path).read_bytes()
+    text = extract_text_from_file(content, doc.filename)
+    return {"id": doc_id, "filename": doc.filename, "text": text}
 
 @app.post("/api/upload")
 async def upload_document(
@@ -141,6 +162,7 @@ async def upload_document(
     user_id: str = DEFAULT_USER_ID, 
     db: Session = Depends(get_db)
 ):
+    content = await file.read()
     pages = extract_pages_from_file(content, file.filename)
     if not pages or sum(len(txt) for _, txt in pages) < 10:
         return {"status": "error", "message": "Extracted document text is too short or empty."}
@@ -280,11 +302,17 @@ async def audit_stream(payload: AuditRequest, req: Request, db: Session = Depend
         yield f"event: status\ndata: {json.dumps({'message': f'Reranking top {len(candidates)} candidate clauses...'})}\n\n"
         ranked = req.app.state.reranker.rerank(payload.query, candidates, top_k=3) if candidates else []
         top_chunk = ranked[0] if ranked else None
+        top_score = top_chunk["score"] if top_chunk else 0.0
         top_meta = top_chunk.get("metadata", {}) if top_chunk else {}
         page_num = top_meta.get("page_number", 1)
         source_doc = top_meta.get("source", "")
+        raw_snippet = top_chunk["text"] if top_chunk else ""
         
-        yield f"event: metadata\ndata: {json.dumps({'confidence': round(top_score, 4), 'is_sufficient': top_score >= 0.50, 'page_number': page_num, 'source': source_doc, 'snippet': top_chunk['text'][:250] if top_chunk else ''})}\n\n"
+        # Pick the most distinctive sentence from the chunk for highlighting
+        sentences = [s.strip() for s in raw_snippet.split("\n") if len(s.strip()) > 25]
+        quote_target = sentences[0] if sentences else raw_snippet[:120]
+        
+        yield f"event: metadata\ndata: {json.dumps({'confidence': round(top_score, 4), 'is_sufficient': top_score >= 0.50, 'page_number': page_num, 'source': source_doc, 'snippet': quote_target, 'full_chunk': raw_snippet})}\n\n"
         
         full_answer = []
         if top_score < 0.50:

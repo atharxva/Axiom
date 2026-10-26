@@ -60,22 +60,31 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Load document content for the evidence viewer
+  const [docRawText, setDocRawText] = useState("");
+  const evidenceTextRef = useRef(null);
+
+  // Load document content and raw text for the evidence viewer
   const loadDocumentContent = async (doc) => {
     if (!doc) return;
     setDocLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/documents/${doc.id}/download`);
+      // 1. Set document source URL (/view serves inline preview, /download triggers file save)
       if (doc.filename.endsWith(".pdf")) {
-        const blob = await res.blob();
-        setDocContent(URL.createObjectURL(blob));
+        setDocContent(`http://localhost:8000/api/documents/${doc.id}/view`);
       } else {
+        const res = await fetch(`http://localhost:8000/api/documents/${doc.id}/view`);
         const text = await res.text();
         setDocContent(text);
       }
+
+      // 2. Load extracted text for pinpoint sentence highlighting
+      const textRes = await fetch(`http://localhost:8000/api/documents/${doc.id}/text`);
+      const textData = await textRes.json();
+      setDocRawText(textData.text || "");
     } catch (err) {
       console.error("Failed to load document preview", err);
       setDocContent("");
+      setDocRawText("");
     } finally {
       setDocLoading(false);
     }
@@ -114,11 +123,21 @@ export default function App() {
     }
   };
 
-  // Jump to specific cited page/clause in split screen
+  const [activeTab, setActiveTab] = useState("original"); // "original" (PDF) or "text"
+
+  // Jump to specific cited sentence in split screen with native PDF search & highlighting
   const handleJumpToCitation = (pageNum, snippet) => {
     setTargetPage(pageNum || 1);
     setHighlightSnippet(snippet || "");
+    setActiveTab("original");
     setIsSplitView(true);
+
+    setTimeout(() => {
+      const el = document.getElementById("highlighted-clause");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 200);
   };
 
   const handleSend = async (e) => {
@@ -385,15 +404,15 @@ export default function App() {
                           {msg.citation && msg.confidence >= 0.5 && (
                             <button
                               onClick={() => handleJumpToCitation(msg.citation.page_number, msg.citation.snippet)}
-                              title="Inspect exact source clause in split screen"
+                              title="Inspect exact source sentence in split screen"
                               style={{
                                 display: "inline-flex",
                                 alignItems: "center",
-                                gap: "0.3rem",
+                                gap: "0.35rem",
                                 background: "var(--primary-light)",
                                 color: "var(--primary)",
                                 border: "1px solid rgba(2, 132, 199, 0.25)",
-                                padding: "0.22rem 0.6rem",
+                                padding: "0.22rem 0.65rem",
                                 borderRadius: "9999px",
                                 fontSize: "0.72rem",
                                 fontWeight: 700,
@@ -402,7 +421,7 @@ export default function App() {
                               }}
                             >
                               <MapPin size={12} />
-                              <span>Page {msg.citation.page_number || 1}</span>
+                              <span>View Source Clause</span>
                             </button>
                           )}
 
@@ -492,25 +511,16 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Verified Clause Snippet Box */}
+              {/* Verified Clause Snippet Notification Banner */}
               {highlightSnippet && (
-                <div style={{
-                  padding: "0.75rem 1rem",
-                  background: "var(--primary-light)",
-                  borderBottom: "1px solid rgba(2, 132, 199, 0.2)",
-                  fontSize: "0.78rem",
-                  color: "var(--primary)",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: "0.5rem"
-                }}>
-                  <MapPin size={15} style={{ flexShrink: 0, marginTop: "2px" }} />
-                  <div>
-                    <strong style={{ display: "block", marginBottom: "2px" }}>Cited Passage Location (Page {targetPage}):</strong>
-                    <span style={{ color: "var(--text-secondary)", fontStyle: "italic" }}>
-                      "{highlightSnippet}"
-                    </span>
+                <div className="highlighted-sentence-banner">
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <MapPin size={14} color="#854d0e" />
+                    <strong style={{ fontSize: "0.82rem" }}>Direct Source Clause Reference:</strong>
                   </div>
+                  <span style={{ fontStyle: "italic", fontSize: "0.8rem", lineHeight: 1.4 }}>
+                    "{highlightSnippet}"
+                  </span>
                 </div>
               )}
 
@@ -530,7 +540,27 @@ export default function App() {
                   </div>
                 ) : activeDoc.name.endsWith(".pdf") ? (
                   <iframe 
-                    src={`${docContent}#page=${targetPage}`} 
+                    key={`${activeDoc.id}-${targetPage}-${highlightSnippet}`}
+                    src={(() => {
+                      const params = [];
+                      if (targetPage && targetPage >= 1) {
+                        params.push(`page=${targetPage}`);
+                      }
+                      if (highlightSnippet) {
+                        // Extract 2 to 3 distinctive words from the clause to highlight in the PDF
+                        const searchWords = highlightSnippet
+                          .replace(/[^\w\s]/gi, ' ')
+                          .split(/\s+/)
+                          .filter(w => w.length > 3)
+                          .slice(0, 3)
+                          .join(' ');
+                        if (searchWords) {
+                          params.push(`search="${encodeURIComponent(searchWords)}"`);
+                        }
+                      }
+                      const fragment = params.length > 0 ? `#${params.join('&')}` : '';
+                      return `${docContent}${fragment}`;
+                    })()} 
                     title="Document Evidence Viewer" 
                     className="evidence-iframe" 
                   />
