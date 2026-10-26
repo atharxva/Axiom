@@ -12,8 +12,24 @@ class BM25Retriever:
     def _tokenize(text: str) -> list[str]:
         return re.findall(r"\w+", text.lower())
 
-    def search(self, query: str, top_k: int = 2) -> list[tuple[DocumentChunk, float]]:
+    def search(
+        self, 
+        query: str, 
+        top_k: int = 2, 
+        user_id: str | None = None, 
+        doc_id: str | None = None
+    ) -> list[tuple[DocumentChunk, float]]:
         query_tokens = self._tokenize(query)
         scores = self.bm25.get_scores(query_tokens)
-        ranked = sorted(zip(self.chunks, scores), key=lambda x: x[1], reverse=True)
+        
+        filtered_ranked: list[tuple[DocumentChunk, float]] = []
+        for chunk, score in zip(self.chunks, scores):
+            if user_id and chunk.metadata.user_id and chunk.metadata.user_id != user_id:
+                continue
+            if doc_id and chunk.metadata.doc_id and chunk.metadata.doc_id != doc_id:
+                continue
+            filtered_ranked.append((chunk, score))
+            
+        ranked = sorted(filtered_ranked, key=lambda x: x[1], reverse=True)
         return ranked[:top_k]
+

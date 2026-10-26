@@ -10,10 +10,16 @@ class RerankerService:
             return []
         
         passages = [{"id": c["chunk_id"], "text": c["text"]} for c in candidates]
+        meta_lookup = {c["chunk_id"]: c.get("metadata", {}) for c in candidates}
         req = RerankRequest(query=query, passages=passages)
         results = self.ranker.rerank(req)
         
         return [
-            {"chunk_id": r["id"], "score": float(r["score"]), "text": r["text"]}
+            {
+                "chunk_id": r["id"], 
+                "score": float(r["score"]), 
+                "text": r["text"],
+                "metadata": meta_lookup.get(r["id"], {})
+            }
             for r in results[:top_k]
         ]

@@ -1,11 +1,37 @@
 import React, { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import { UploadCloud, ArrowUp, ShieldCheck, FileCheck, Loader2, Sparkles } from "lucide-react";
+import { 
+  ShieldCheck, 
+  UploadCloud, 
+  ArrowUp, 
+  FileText, 
+  FolderOpen, 
+  Loader2, 
+  CheckCircle2, 
+  AlertTriangle,
+  ExternalLink,
+  BookOpen,
+  Sparkles,
+  Columns,
+  Maximize2,
+  X,
+  MapPin
+} from "lucide-react";
+import DocumentDrawer from "./DocumentDrawer";
 
 export default function App() {
   const [stats, setStats] = useState({ indexed_chunks: 0 });
   const [activeDoc, setActiveDoc] = useState(null);
+  const [docContent, setDocContent] = useState("");
+  const [docLoading, setDocLoading] = useState(false);
+  
+  // Default to full-screen chat; split view is toggled via button
+  const [isSplitView, setIsSplitView] = useState(false);
+  const [targetPage, setTargetPage] = useState(1);
+  const [highlightSnippet, setHighlightSnippet] = useState("");
+
   const [uploading, setUploading] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const [inputQuery, setInputQuery] = useState("");
   const [messages, setMessages] = useState([]);
@@ -13,16 +39,53 @@ export default function App() {
 
   const chatEndRef = useRef(null);
 
+  // Load server stats and initial active document
   useEffect(() => {
     fetch("http://localhost:8000/health")
       .then((res) => res.json())
       .then((data) => setStats(data))
+      .catch(() => {});
+
+    fetch("http://localhost:8000/api/documents")
+      .then((res) => res.json())
+      .then((docs) => {
+        if (docs && docs.length > 0) {
+          handleSelectDoc(docs[0]);
+        }
+      })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Load document content for the evidence viewer
+  const loadDocumentContent = async (doc) => {
+    if (!doc) return;
+    setDocLoading(true);
+    try {
+      const res = await fetch(`http://localhost:8000/api/documents/${doc.id}/download`);
+      if (doc.filename.endsWith(".pdf")) {
+        const blob = await res.blob();
+        setDocContent(URL.createObjectURL(blob));
+      } else {
+        const text = await res.text();
+        setDocContent(text);
+      }
+    } catch (err) {
+      console.error("Failed to load document preview", err);
+      setDocContent("");
+    } finally {
+      setDocLoading(false);
+    }
+  };
+
+  const handleSelectDoc = (doc) => {
+    setActiveDoc({ id: doc.id, name: doc.filename, chunks: doc.chunk_count });
+    loadDocumentContent(doc);
+    setIsDrawerOpen(false);
+  };
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -39,14 +102,23 @@ export default function App() {
       });
       const data = await res.json();
       if (data.status === "success") {
-        setActiveDoc({ name: data.filename, chunks: data.new_chunks });
+        const newDoc = { id: data.doc_id, filename: data.filename, chunk_count: data.new_chunks };
+        setActiveDoc({ id: data.doc_id, name: data.filename, chunks: data.new_chunks });
         setStats((prev) => ({ ...prev, indexed_chunks: data.total_chunks }));
+        loadDocumentContent(newDoc);
       }
     } catch (err) {
       console.error("Upload failed", err);
     } finally {
       setUploading(false);
     }
+  };
+
+  // Jump to specific cited page/clause in split screen
+  const handleJumpToCitation = (pageNum, snippet) => {
+    setTargetPage(pageNum || 1);
+    setHighlightSnippet(snippet || "");
+    setIsSplitView(true);
   };
 
   const handleSend = async (e) => {
@@ -60,7 +132,8 @@ export default function App() {
         { role: "user", text: query },
         {
           role: "ai",
-          text: "**Please upload a compliance policy first.**\n\nDrop a PDF or TXT document into the box above so I can audit your question against official rules.",
+          text: "**Please upload or select a compliance policy first.**\n\nUpload a document so I can verify your inquiry against official clauses.",
+          confidence: null,
           status: "done",
         },
       ]);
@@ -71,18 +144,20 @@ export default function App() {
     setInputQuery("");
     setIsStreaming(true);
 
-    // Add user message and empty AI container
     setMessages((prev) => [
       ...prev,
       { role: "user", text: query },
-      { role: "ai", text: "", status: "thinking" },
+      { role: "ai", text: "", confidence: null, citation: null, status: "thinking" },
     ]);
 
     try {
       const response = await fetch("http://localhost:8000/api/audit/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ 
+          query,
+          doc_id: activeDoc?.id || null 
+        }),
       });
 
       const reader = response.body.getReader();
@@ -101,11 +176,31 @@ export default function App() {
         for (const evt of events) {
           if (!evt.trim()) continue;
           const lines = evt.split("\n");
+          let eventType = "message";
+
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
+            if (line.startsWith("event: ")) {
+              eventType = line.slice(7).trim();
+            } else if (line.startsWith("data: ")) {
               try {
                 const payload = JSON.parse(line.slice(6));
-                if (payload.token) {
+                
+                if (eventType === "metadata" && payload.confidence !== undefined) {
+                  setMessages((prev) => {
+                    const copy = [...prev];
+                    const lastIdx = copy.length - 1;
+                    if (copy[lastIdx] && copy[lastIdx].role === "ai") {
+                      copy[lastIdx].confidence = payload.confidence;
+                      copy[lastIdx].is_sufficient = payload.is_sufficient;
+                      copy[lastIdx].citation = {
+                        page_number: payload.page_number,
+                        source: payload.source,
+                        snippet: payload.snippet
+                      };
+                    }
+                    return copy;
+                  });
+                } else if (eventType === "token" && payload.token) {
                   streamAccumulator += payload.token;
                   const currentText = streamAccumulator;
                   setMessages((prev) => {
@@ -145,101 +240,315 @@ export default function App() {
   };
 
   return (
-    <div className="app-wrapper">
-      {/* Top Header */}
-      <header className="top-header">
-        <div>
-          <h1 style={{ fontSize: "1.35rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Sparkles size={20} color="var(--accent-cyan)" /> AxiomRAG
-          </h1>
-          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.15rem" }}>
-            Enterprise Compliance Auditor
-          </p>
-        </div>
-        <div className="badge-cyan">
-          <ShieldCheck size={14} />
-          {stats.indexed_chunks} Clauses In Memory
-        </div>
-      </header>
-
-      {/* Big Hero Center Dropbox */}
-      {!activeDoc ? (
-        <label className="hero-dropzone">
-          <UploadCloud size={44} color="var(--accent-cyan)" style={{ margin: "0 auto 0.75rem" }} />
-          <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Drop your Compliance Policy PDF / TXT here</h2>
-          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.35rem" }}>
-            Upload document to activate compliance chat
-          </p>
-          <input type="file" accept=".pdf,.txt" style={{ display: "none" }} onChange={handleFileUpload} />
-        </label>
-      ) : (
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.75rem" }}>
-          <div className="doc-pill">
-            <FileCheck size={16} />
-            <span>Active Policy: <strong>{activeDoc.name}</strong></span>
+    <div className="app-container">
+      <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
+        {/* Top Executive Header */}
+        <header className="app-header">
+          <div className="brand-section">
+            <div className="brand-icon">
+              <ShieldCheck size={18} />
+            </div>
+            <div>
+              <h1 className="brand-title">AxiomRAG</h1>
+              <p className="brand-subtitle">Enterprise Compliance & Legal Audit Desk</p>
+            </div>
           </div>
-        </div>
-      )}
 
-      {uploading && (
-        <div style={{ textAlign: "center", marginBottom: "1.5rem", color: "var(--accent-cyan)", fontSize: "0.9rem" }}>
-          <Loader2 size={18} className="animate-spin" style={{ display: "inline", marginRight: "0.5rem" }} />
-          Indexing compliance policy...
-        </div>
-      )}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            {/* Toggle Split Screen Button */}
+            <button 
+              className={`btn-neutral ${isSplitView ? "btn-active" : ""}`}
+              onClick={() => setIsSplitView(!isSplitView)}
+              title={isSplitView ? "Close Split View (Full Screen Chat)" : "Open Document Split View"}
+              style={{
+                background: isSplitView ? "var(--primary-light)" : "var(--bg-surface)",
+                borderColor: isSplitView ? "var(--primary)" : "var(--border-light)",
+                color: isSplitView ? "var(--primary)" : "var(--text-secondary)"
+              }}
+            >
+              <Columns size={15} />
+              <span>{isSplitView ? "Full Screen Chat" : "Split View"}</span>
+            </button>
 
-      {/* Chat Messages */}
-      <div className="chat-container">
-        {messages.length === 0 && !uploading && (
-          <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: "3rem" }}>
-            <p style={{ fontSize: "1.05rem", fontWeight: 500 }}>
-              {!activeDoc ? "Upload a document above to get started." : "Ask any compliance or audit question below."}
-            </p>
+            <button 
+              className="btn-neutral"
+              onClick={() => setIsDrawerOpen(true)}
+              title="Open Policy Repository"
+            >
+              <FolderOpen size={15} color="var(--primary)" />
+              <span>Repository</span>
+            </button>
+
+            <div className="header-status-badge">
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--success)" }} />
+              {stats.indexed_chunks} Clauses
+            </div>
           </div>
-        )}
+        </header>
 
-        {messages.map((msg, i) => (
-          <div key={i} className={msg.role === "user" ? "message-user" : "message-ai"}>
-            {msg.role === "ai" && msg.status === "thinking" && !msg.text ? (
-              <div className="dot-flashing">
-                <span className="dot" />
-                <span className="dot" />
-                <span className="dot" />
-              </div>
-            ) : (
-              <div className="markdown-content">
-                <ReactMarkdown>{msg.text}</ReactMarkdown>
-                {msg.status === "streaming" && <span className="typing-cursor" />}
+        {/* Split / Full Viewport */}
+        <div className="split-viewport">
+          {/* Main Audit Workspace (Full width by default, half width in split mode) */}
+          <div 
+            className="audit-workspace" 
+            style={{ 
+              borderRight: isSplitView ? "1px solid var(--border-light)" : "none",
+              maxWidth: isSplitView ? "55%" : "880px",
+              margin: isSplitView ? "0" : "0 auto",
+              width: "100%"
+            }}
+          >
+            {/* Active Policy Status Bar */}
+            {activeDoc && (
+              <div className="active-policy-bar">
+                <div className="policy-card-meta">
+                  <span className="policy-badge">Active Policy</span>
+                  <span style={{ maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {activeDoc.name}
+                  </span>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>
+                    ({activeDoc.chunks} clauses)
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  {!isSplitView && (
+                    <button 
+                      className="btn-neutral" 
+                      style={{ padding: "0.25rem 0.6rem", fontSize: "0.75rem" }}
+                      onClick={() => setIsSplitView(true)}
+                    >
+                      <Columns size={13} />
+                      <span>Inspect PDF</span>
+                    </button>
+                  )}
+                  <button 
+                    className="btn-neutral" 
+                    style={{ padding: "0.25rem 0.6rem", fontSize: "0.75rem" }}
+                    onClick={() => setIsDrawerOpen(true)}
+                  >
+                    Switch
+                  </button>
+                </div>
               </div>
             )}
-          </div>
-        ))}
-        <div ref={chatEndRef} />
-      </div>
 
-      {/* Fixed Bottom Input Bar */}
-      <div className="bottom-bar">
-        <form onSubmit={handleSend} className="input-container">
-          <input
-            type="text"
-            className="chat-input"
-            placeholder={!activeDoc ? "Please upload a compliance document above first..." : "Ask an audit question..."}
-            value={inputQuery}
-            onChange={(e) => setInputQuery(e.target.value)}
-            disabled={isStreaming}
-          />
-          <button type="submit" className="btn-send" disabled={isStreaming || !inputQuery.trim()}>
-            {isStreaming ? (
-              <div className="dot-flashing" style={{ gap: "3px" }}>
-                <span className="dot" style={{ width: "4px", height: "4px", backgroundColor: "#fff" }} />
-                <span className="dot" style={{ width: "4px", height: "4px", backgroundColor: "#fff" }} />
-                <span className="dot" style={{ width: "4px", height: "4px", backgroundColor: "#fff" }} />
+            {/* Audit Conversation Feed */}
+            <div className="chat-scrollport">
+              {messages.length === 0 && (
+                <div className="empty-hero">
+                  <div className="hero-icon-bubble">
+                    <BookOpen size={28} />
+                  </div>
+                  <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-main)", letterSpacing: "-0.01em" }}>
+                    Executive Audit Console
+                  </h2>
+                  <p style={{ color: "var(--text-muted)", fontSize: "0.88rem", marginTop: "0.35rem", lineHeight: 1.5 }}>
+                    Drop a compliance policy, supplier code, or legal statute below to begin deterministic verification.
+                  </p>
+
+                  <label className="hero-dropzone-box">
+                    <UploadCloud size={32} color="var(--primary)" style={{ margin: "0 auto 0.5rem" }} />
+                    <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text-main)" }}>
+                      Upload Policy Document
+                    </p>
+                    <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                      PDF or TXT compliance files supported
+                    </p>
+                    <input type="file" accept=".pdf,.txt" style={{ display: "none" }} onChange={handleFileUpload} />
+                  </label>
+                </div>
+              )}
+
+              {uploading && (
+                <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--primary)" }}>
+                  <Loader2 size={20} className="animate-spin" style={{ display: "inline", marginRight: "0.5rem" }} />
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Extracting clauses & indexing vector space...</span>
+                </div>
+              )}
+
+              {messages.map((msg, idx) => (
+                <div key={idx} className={msg.role === "user" ? "message-row-user" : "message-row-ai"}>
+                  {msg.role === "user" ? (
+                    <div className="user-bubble">{msg.text}</div>
+                  ) : (
+                    <div className="ai-card">
+                      <div className="ai-card-header">
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                          <Sparkles size={16} color="var(--primary)" />
+                          <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-main)" }}>
+                            Audit Finding
+                          </span>
+                        </div>
+                        
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                          {/* Citation Quick-Jump Pill */}
+                          {msg.citation && msg.confidence >= 0.5 && (
+                            <button
+                              onClick={() => handleJumpToCitation(msg.citation.page_number, msg.citation.snippet)}
+                              title="Inspect exact source clause in split screen"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.3rem",
+                                background: "var(--primary-light)",
+                                color: "var(--primary)",
+                                border: "1px solid rgba(2, 132, 199, 0.25)",
+                                padding: "0.22rem 0.6rem",
+                                borderRadius: "9999px",
+                                fontSize: "0.72rem",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                transition: "all 0.15s"
+                              }}
+                            >
+                              <MapPin size={12} />
+                              <span>Page {msg.citation.page_number || 1}</span>
+                            </button>
+                          )}
+
+                          {msg.confidence !== null && (
+                            <div className={`confidence-indicator ${msg.confidence >= 0.5 ? "confidence-high" : "confidence-low"}`}>
+                              {msg.confidence >= 0.5 ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+                              <span>Confidence: {(msg.confidence * 100).toFixed(1)}%</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {msg.status === "thinking" && !msg.text ? (
+                        <div className="thinking-box">
+                          <div className="dot-bounce" />
+                          <div className="dot-bounce" />
+                          <div className="dot-bounce" />
+                          <span>Searching hybrid index & reranking verified clauses...</span>
+                        </div>
+                      ) : (
+                        <div className="markdown-editorial">
+                          <ReactMarkdown>{msg.text}</ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input Dock */}
+            <div className="audit-input-dock">
+              <form onSubmit={handleSend} className="input-bar">
+                <input
+                  type="text"
+                  className="audit-input"
+                  placeholder={!activeDoc ? "Please upload a document to begin..." : "Inquire about a policy clause, restriction, or obligation..."}
+                  value={inputQuery}
+                  onChange={(e) => setInputQuery(e.target.value)}
+                  disabled={isStreaming}
+                />
+                <button type="submit" className="btn-audit-send" disabled={isStreaming || !inputQuery.trim()}>
+                  {isStreaming ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Right Pane: Live Document Evidence Viewer (Rendered only in Split View) */}
+          {isSplitView && (
+            <div className="evidence-viewer">
+              <div className="evidence-header">
+                <div className="evidence-title">
+                  <FileText size={16} color="var(--primary)" />
+                  <span>Document Evidence {targetPage > 1 && `(Page ${targetPage})`}</span>
+                </div>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  {activeDoc && (
+                    <a 
+                      href={`http://localhost:8000/api/documents/${activeDoc.id}/download`} 
+                      download={activeDoc.name}
+                      className="btn-neutral"
+                      style={{ padding: "0.2rem 0.55rem", fontSize: "0.72rem" }}
+                      title="Download original file"
+                    >
+                      <ExternalLink size={12} />
+                      <span>Download</span>
+                    </a>
+                  )}
+                  <button 
+                    onClick={() => setIsSplitView(false)}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--border-light)",
+                      borderRadius: "6px",
+                      padding: "4px",
+                      cursor: "pointer",
+                      display: "flex",
+                      color: "var(--text-muted)"
+                    }}
+                    title="Close split view"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
               </div>
-            ) : (
-              <ArrowUp size={18} />
-            )}
-          </button>
-        </form>
+
+              {/* Verified Clause Snippet Box */}
+              {highlightSnippet && (
+                <div style={{
+                  padding: "0.75rem 1rem",
+                  background: "var(--primary-light)",
+                  borderBottom: "1px solid rgba(2, 132, 199, 0.2)",
+                  fontSize: "0.78rem",
+                  color: "var(--primary)",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "0.5rem"
+                }}>
+                  <MapPin size={15} style={{ flexShrink: 0, marginTop: "2px" }} />
+                  <div>
+                    <strong style={{ display: "block", marginBottom: "2px" }}>Cited Passage Location (Page {targetPage}):</strong>
+                    <span style={{ color: "var(--text-secondary)", fontStyle: "italic" }}>
+                      "{highlightSnippet}"
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="evidence-body">
+                {docLoading ? (
+                  <div className="evidence-empty">
+                    <Loader2 size={24} className="animate-spin" style={{ marginBottom: "0.5rem", color: "var(--primary)" }} />
+                    <p style={{ fontSize: "0.85rem" }}>Loading document viewer...</p>
+                  </div>
+                ) : !activeDoc ? (
+                  <div className="evidence-empty">
+                    <BookOpen size={36} style={{ opacity: 0.3, marginBottom: "0.75rem" }} />
+                    <p style={{ fontWeight: 600, fontSize: "0.9rem" }}>No Active Document</p>
+                    <p style={{ fontSize: "0.78rem", maxWidth: "260px", marginTop: "4px" }}>
+                      Upload or select a policy on the left to inspect its clauses.
+                    </p>
+                  </div>
+                ) : activeDoc.name.endsWith(".pdf") ? (
+                  <iframe 
+                    src={`${docContent}#page=${targetPage}`} 
+                    title="Document Evidence Viewer" 
+                    className="evidence-iframe" 
+                  />
+                ) : (
+                  <pre className="evidence-raw-text">{docContent}</pre>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Slide-out Document Repository */}
+        <DocumentDrawer 
+          isOpen={isDrawerOpen} 
+          onClose={() => setIsDrawerOpen(false)}
+          onSelectDoc={handleSelectDoc}
+          activeDocId={activeDoc?.id}
+        />
       </div>
     </div>
   );
