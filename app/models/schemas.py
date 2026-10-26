@@ -19,10 +19,44 @@ class SearchResponse(BaseModel):
 
 class AuditRequest(BaseModel):
     query: str = Field(..., min_length=3, description="Audit compliance question")
+    session_id: str | None = Field(default=None, description="Optional chat session ID")
+    user_id: str | None = Field(default=None, description="Optional user ID")
+    doc_id: str | None = Field(default=None, description="Optional specific document ID to scope audit to")
 
 class AuditResponse(BaseModel):
+
     query: str
     confidence_score: float
     is_sufficient: bool
     final_answer: str
     latency_ms: float
+
+class UserProfileResponse(BaseModel):
+    id: str
+    username: str
+    full_name: str | None
+    role: str
+    total_documents: int
+    created_at: str
+
+class DocumentItemResponse(BaseModel):
+    id: str
+    filename: str
+    file_size_bytes: int
+    chunk_count: int
+    created_at: str
+
+class ChatMessageItem(BaseModel):
+    id: str
+    role: str
+    content: str
+    confidence_score: float | None
+    created_at: str
+
+class ChatSessionItem(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+

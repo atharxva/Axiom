@@ -1,0 +1,8 @@
+1.document storage which can be liked to the users ,
+basically create a profile ,
+2.being able to view the uploaded documents 
+3.A chat context option , and being able to view the past chats
+4. A better looking ui avoiding the dark colours, and making it not 
+look like chatgpt or any other llm but something unique of it 
+own .
+5. 
