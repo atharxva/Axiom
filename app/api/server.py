@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, UploadFile, File, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import chromadb
@@ -347,3 +348,19 @@ async def audit_stream(payload: AuditRequest, req: Request, db: Session = Depend
             save_db.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+# ----------------- Static Frontend Mounting (Production / Container) -----------------
+FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Allow API and docs routes to pass through
+        if full_path.startswith("api/") or full_path.startswith("health") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            raise HTTPException(status_code=404, detail="Not found")
+        file_candidate = FRONTEND_DIST / full_path
+        if file_candidate.is_file():
+            return FileResponse(file_candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")
+

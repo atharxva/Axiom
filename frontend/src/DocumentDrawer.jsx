@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { FileText, Eye, Download, CheckCircle2, ChevronRight, X, Loader2 } from "lucide-react";
+import { API_BASE } from "./config";
 
 export default function DocumentDrawer({ isOpen, onClose, onSelectDoc, activeDocId }) {
   const [documents, setDocuments] = useState([]);
@@ -14,7 +15,7 @@ export default function DocumentDrawer({ isOpen, onClose, onSelectDoc, activeDoc
   const fetchDocuments = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/api/documents");
+      const res = await fetch(`${API_BASE}/api/documents`);
       const data = await res.json();
       setDocuments(data);
     } catch (err) {
@@ -137,7 +138,7 @@ export default function DocumentDrawer({ isOpen, onClose, onSelectDoc, activeDoc
 
                     <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                       <a 
-                        href={`http://localhost:8000/api/documents/${doc.id}/download`} 
+                        href={`${API_BASE}/api/documents/${doc.id}/download`} 
                         download={doc.filename}
                         title="Download Original"
                         style={{

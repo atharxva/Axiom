@@ -15,9 +15,11 @@ import {
   Columns,
   Maximize2,
   X,
-  MapPin
+  MapPin,
+  Trash2
 } from "lucide-react";
 import DocumentDrawer from "./DocumentDrawer";
+import { API_BASE } from "./config";
 
 export default function App() {
   const [stats, setStats] = useState({ indexed_chunks: 0 });
@@ -34,19 +36,40 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const [inputQuery, setInputQuery] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem("axiom_chat_history");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isStreaming, setIsStreaming] = useState(false);
+
+  // Sync messages to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem("axiom_chat_history", JSON.stringify(messages));
+    } catch (e) {
+      console.warn("Could not persist chat history", e);
+    }
+  }, [messages]);
+
+  const handleClearChat = () => {
+    setMessages([]);
+    localStorage.removeItem("axiom_chat_history");
+  };
 
   const chatEndRef = useRef(null);
 
   // Load server stats and initial active document
   useEffect(() => {
-    fetch("http://localhost:8000/health")
+    fetch(`${API_BASE}/health`)
       .then((res) => res.json())
       .then((data) => setStats(data))
       .catch(() => {});
 
-    fetch("http://localhost:8000/api/documents")
+    fetch(`${API_BASE}/api/documents`)
       .then((res) => res.json())
       .then((docs) => {
         if (docs && docs.length > 0) {
@@ -70,15 +93,15 @@ export default function App() {
     try {
       // 1. Set document source URL (/view serves inline preview, /download triggers file save)
       if (doc.filename.endsWith(".pdf")) {
-        setDocContent(`http://localhost:8000/api/documents/${doc.id}/view`);
+        setDocContent(`${API_BASE}/api/documents/${doc.id}/view`);
       } else {
-        const res = await fetch(`http://localhost:8000/api/documents/${doc.id}/view`);
+        const res = await fetch(`${API_BASE}/api/documents/${doc.id}/view`);
         const text = await res.text();
         setDocContent(text);
       }
 
       // 2. Load extracted text for pinpoint sentence highlighting
-      const textRes = await fetch(`http://localhost:8000/api/documents/${doc.id}/text`);
+      const textRes = await fetch(`${API_BASE}/api/documents/${doc.id}/text`);
       const textData = await textRes.json();
       setDocRawText(textData.text || "");
     } catch (err) {
@@ -105,7 +128,7 @@ export default function App() {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://localhost:8000/api/upload", {
+      const res = await fetch(`${API_BASE}/api/upload`, {
         method: "POST",
         body: formData,
       });
@@ -170,7 +193,7 @@ export default function App() {
     ]);
 
     try {
-      const response = await fetch("http://localhost:8000/api/audit/stream", {
+      const response = await fetch(`${API_BASE}/api/audit/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -347,6 +370,17 @@ export default function App() {
                   >
                     Switch
                   </button>
+                  {messages.length > 0 && (
+                    <button 
+                      className="btn-neutral" 
+                      style={{ padding: "0.25rem 0.6rem", fontSize: "0.75rem", color: "#dc2626" }}
+                      onClick={handleClearChat}
+                      title="Clear chat history"
+                    >
+                      <Trash2 size={13} />
+                      <span>Clear</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -483,7 +517,7 @@ export default function App() {
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   {activeDoc && (
                     <a 
-                      href={`http://localhost:8000/api/documents/${activeDoc.id}/download`} 
+                      href={`${API_BASE}/api/documents/${activeDoc.id}/download`} 
                       download={activeDoc.name}
                       className="btn-neutral"
                       style={{ padding: "0.2rem 0.55rem", fontSize: "0.72rem" }}
