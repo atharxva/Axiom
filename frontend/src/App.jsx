@@ -321,6 +321,22 @@ export default function App() {
               <span>Repository</span>
             </button>
 
+            {messages.length > 0 && (
+              <button 
+                className="btn-neutral"
+                onClick={handleClearChat}
+                title="Clear current conversation"
+                style={{
+                  color: "#dc2626",
+                  borderColor: "rgba(220, 38, 38, 0.25)",
+                  background: "rgba(254, 242, 242, 0.6)"
+                }}
+              >
+                <Trash2 size={14} />
+                <span>Clear Chat</span>
+              </button>
+            )}
+
             <div className="header-status-badge">
               <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--success)" }} />
               {stats.indexed_chunks} Clauses
@@ -341,7 +357,7 @@ export default function App() {
             }}
           >
             {/* Active Policy Status Bar */}
-            {activeDoc && (
+            {activeDoc ? (
               <div className="active-policy-bar">
                 <div className="policy-card-meta">
                   <span className="policy-badge">Active Policy</span>
@@ -370,17 +386,27 @@ export default function App() {
                   >
                     Switch
                   </button>
-                  {messages.length > 0 && (
-                    <button 
-                      className="btn-neutral" 
-                      style={{ padding: "0.25rem 0.6rem", fontSize: "0.75rem", color: "#dc2626" }}
-                      onClick={handleClearChat}
-                      title="Clear chat history"
-                    >
-                      <Trash2 size={13} />
-                      <span>Clear</span>
-                    </button>
-                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="active-policy-bar" style={{ background: "#fef9c3", borderColor: "#fde047" }}>
+                <div className="policy-card-meta">
+                  <span className="policy-badge" style={{ background: "#ca8a04", color: "#fff" }}>No Document Selected</span>
+                  <span style={{ fontSize: "0.82rem", color: "#854d0e" }}>Upload a compliance policy (.pdf or .txt) to start.</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <label className="btn-primary" style={{ padding: "0.25rem 0.65rem", fontSize: "0.75rem", cursor: uploading ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                    {uploading ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+                    <span>{uploading ? "Indexing..." : "Upload Document"}</span>
+                    <input type="file" accept=".pdf,.txt" style={{ display: "none" }} disabled={uploading} onChange={handleFileUpload} />
+                  </label>
+                  <button 
+                    className="btn-neutral" 
+                    style={{ padding: "0.25rem 0.6rem", fontSize: "0.75rem" }} 
+                    onClick={() => setIsDrawerOpen(true)}
+                  >
+                    Repository
+                  </button>
                 </div>
               </div>
             )}
@@ -612,6 +638,8 @@ export default function App() {
           onClose={() => setIsDrawerOpen(false)}
           onSelectDoc={handleSelectDoc}
           activeDocId={activeDoc?.id}
+          onUpload={handleFileUpload}
+          uploading={uploading}
         />
       </div>
     </div>

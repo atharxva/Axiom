@@ -1,10 +1,8 @@
-# ==========================================
-# Stage 1: Build Frontend (Vite + React)
-# ==========================================
+
 FROM node:20-slim AS frontend-builder
 WORKDIR /build
 
-# Install dependencies with caching
+
 COPY frontend/package*.json ./
 RUN npm install
 
@@ -27,8 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create Hugging Face Spaces compatible non-root user (UID 1000)
-RUN useradd -m -u 1000 user
+# Create non-root user and app directory with full ownership
+RUN useradd -m -u 1000 user && \
+    mkdir -p /app/data/chroma_db /app/data/user_documents /app/data/models && \
+    chown -R user:user /app
+
 USER user
 ENV HOME=/home/user \
     PATH="/home/user/.local/bin:$PATH"
@@ -45,9 +46,8 @@ COPY --chown=user:user app/ ./app/
 # Copy precompiled frontend assets from Stage 1
 COPY --chown=user:user --from=frontend-builder /build/dist ./frontend/dist
 
-# Pre-create data directories with write permissions for SQLite & ChromaDB
-RUN mkdir -p data/chroma_db data/user_documents data/models
+# Cloud Run injects $PORT (default 8080)
+ENV PORT=8080
+EXPOSE 8080
 
-EXPOSE 7860
-
-CMD ["python", "-m", "uvicorn", "app.api.server:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "python -m uvicorn app.api.server:app --host 0.0.0.0 --port ${PORT:-8080}"]

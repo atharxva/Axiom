@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { FileText, Eye, Download, CheckCircle2, ChevronRight, X, Loader2 } from "lucide-react";
+import { FileText, Eye, Download, CheckCircle2, ChevronRight, X, Loader2, UploadCloud } from "lucide-react";
 import { API_BASE } from "./config";
 
-export default function DocumentDrawer({ isOpen, onClose, onSelectDoc, activeDocId }) {
+export default function DocumentDrawer({ isOpen, onClose, onSelectDoc, activeDocId, onUpload, uploading }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -79,16 +79,59 @@ export default function DocumentDrawer({ isOpen, onClose, onSelectDoc, activeDoc
         </div>
 
         <div style={{ padding: "1.25rem 1.5rem", overflowY: "auto", flex: 1 }}>
+          {/* Quick Upload Button in Drawer */}
+          <div style={{ marginBottom: "1rem" }}>
+            <label style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.5rem",
+              background: "var(--primary-light)",
+              border: "1px dashed var(--primary)",
+              color: "var(--primary)",
+              padding: "0.65rem 1rem",
+              borderRadius: "8px",
+              cursor: uploading ? "not-allowed" : "pointer",
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              transition: "all 0.15s"
+            }}>
+              {uploading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Processing & Indexing PDF...</span>
+                </>
+              ) : (
+                <>
+                  <UploadCloud size={16} />
+                  <span>Upload New Document (.pdf, .txt)</span>
+                </>
+              )}
+              <input 
+                type="file" 
+                accept=".pdf,.txt" 
+                style={{ display: "none" }} 
+                disabled={uploading}
+                onChange={async (e) => {
+                  if (onUpload) {
+                    await onUpload(e);
+                    fetchDocuments();
+                  }
+                }} 
+              />
+            </label>
+          </div>
+
           {loading ? (
             <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--text-muted)" }}>
               <Loader2 className="animate-spin" size={24} style={{ margin: "0 auto 0.5rem" }} />
               <p style={{ fontSize: "0.85rem" }}>Loading repository...</p>
             </div>
           ) : documents.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--text-muted)" }}>
+            <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: "var(--text-muted)" }}>
               <FileText size={36} style={{ margin: "0 auto 0.75rem", opacity: 0.4 }} />
               <p style={{ fontWeight: 600 }}>No documents uploaded yet</p>
-              <p style={{ fontSize: "0.8rem", marginTop: "4px" }}>Upload a policy on the audit desk to start.</p>
+              <p style={{ fontSize: "0.8rem", marginTop: "4px" }}>Click the upload button above to ingest a PDF.</p>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
